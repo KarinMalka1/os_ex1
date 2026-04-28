@@ -1,0 +1,32 @@
+#include <vector>
+#include <deque>
+#include <map>
+#include <set>
+#include "uthreads.h"
+
+class ThreadManager {
+private:
+    Thread* running_thread;             // החוט שרץ כרגע 
+    std::deque<Thread*> ready_queue;    // תור החוטים המוכנים [cite: 71]
+    std::map<int, Thread*> all_threads; // מפה לגישה מהירה לכל חוט לפי ID
+    std::set<int> available_ids;        // ניהול ה-IDs הפנויים 
+    int total_quantums;                 // מונה קוונטומים כללי [cite: 175]
+
+public:
+    // פונקציות עזר מומלצות
+    void schedule();                    // החלטה מי החוט הבא שירוץ [cite: 44]
+    int get_next_free_id();             // מציאת ה-ID הקטן ביותר שפנוי 
+    
+    // מימוש ה-API (שלב 1)
+    int init(int quantum_usecs){
+        
+    }
+    
+    int get_tid() { 
+        return running_thread->tid; 
+    
+    }
+    int get_total_quantums() {
+         return total_quantums;
+    }
+};

@@ -1,0 +1,17 @@
+#include <setjmp.h>
+#include <signal.h>
+#include "uthreads.h"
+
+// הגדרת המצבים האפשריים לחוט [cite: 21]
+enum State { READY, RUNNING, BLOCKED };
+
+struct Thread {
+    int tid;                    // מזהה ייחודי [cite: 17]
+    State state;                // המצב הנוכחי של החוט [cite: 21]
+    char* stack;                // מצביע למחסנית (למעט חוט 0) [cite: 75, 87]
+    sigjmp_buf env;             // שמירת ה-Context (רגיסטרים וכו') [cite: 106]
+    int quantums_count;         // כמה קוונטומים החוט רץ בסך הכל [cite: 175]
+
+    // קונסטרקטור פשוט לאתחול
+    Thread(int id, State s) : tid(id), state(s), stack(nullptr), quantums_count(0) {}
+};
