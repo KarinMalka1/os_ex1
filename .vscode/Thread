@@ -15,3 +15,4 @@ struct Thread {
     // קונסטרקטור פשוט לאתחול
     Thread(int id, State s) : tid(id), state(s), stack(nullptr), quantums_count(0) {}
 };
+//////

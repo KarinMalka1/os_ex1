@@ -1,5 +1,3 @@
-
-
 #include "uthreads.h"
 #include <setjmp.h>
 #include <signal.h>
@@ -35,6 +33,8 @@ struct Thread {
     char* stack;                // מצביע למחסנית (למעט חוט 0) [cite: 75, 87]
     sigjmp_buf env;             // שמירת ה-Context (רגיסטרים וכו') [cite: 106]
     int quantums_count;         // כמה קוונטומים החוט רץ בסך הכל [cite: 175]
+    bool forreal = false;
+    int sleep_remaining=0;
 
     Thread(int id, State s) : tid(id), state(s), stack(nullptr), quantums_count(0) {}
 };
@@ -137,6 +137,15 @@ void cleanup_zombie(Thread* t) {
 
 //context switch
 void scheduler(){
+    for (auto const& [tid, thread] : all_threads) {
+        if (thread->sleep_remaining > 0){
+            thread->sleep_remaining--;
+        }
+        if (thread->sleep_remaining == 0 && !thread->forreal) {
+                thread->state = READY;
+                ready_queue.push_back(tid);
+        }
+    }
     if (running_thread != nullptr) {
         if (sigsetjmp(running_thread->env, 1) != 0) {
             while (!zombie_queue.empty()) {
@@ -146,10 +155,11 @@ void scheduler(){
             }
             return; // ממשיכים בחיים של החוט שהתעורר
         }
+        
     }
 
     if (ready_queue.empty()) {
-            return; 
+        return; 
     }
 
     int next_tid = ready_queue.front();
@@ -236,6 +246,7 @@ int uthread_block(int tid) {
     }
 
     all_threads[tid]->state=BLOCKED; 
+    all_threads[tid]->forreal = true;
 
     if (running_thread->tid == tid) {
         scheduler();
@@ -263,7 +274,9 @@ int uthread_resume(int tid) {
         std::cerr << "thread library error: thread " << tid << " not found" << std::endl;
         return -1;
     }
-    if (all_threads[tid]->state == BLOCKED){
+    all_threads[tid]->forreal = false; 
+
+    if (all_threads[tid]->state == BLOCKED && all_threads[tid]->sleep_remaining == 0){
         all_threads[tid]->state=READY; 
         ready_queue.push_back(tid);
     }
@@ -287,13 +300,21 @@ int uthread_resume(int tid) {
  * @return On success, return 0. On failure, return -1.
 */
 int uthread_sleep(int num_quantums) {
+    if(running_thread->tid == 0 && num_quantums != 0){
+        std::cerr << "thread library error: main thread cannot sleep\n";
+        return -1;
+    }
     if (num_quantums == 0){
         running_thread->state = READY;
         ready_queue.push_back(uthread_get_tid());//we moved current running thread ti the end of the queue of all the ready threads
         scheduler();
         return 0;
     }
-    return -1;
+    //num_quantums>0
+    running_thread->sleep_remaining = num_quantums;
+    running_thread->state = BLOCKED;
+    scheduler();
+    return 0;
 }
 
 
