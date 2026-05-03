@@ -6,6 +6,7 @@
 #include <queue>
 #include <map>
 #include <algorithm> 
+#include <sys/time.h>
 
 /* code for 64 bit Intel arch */
 typedef unsigned long address_t;
@@ -39,12 +40,81 @@ struct Thread {
     Thread(int id, State s) : tid(id), state(s), stack(nullptr), quantums_count(0) {}
 };
 
+//
+sigset_t signal_set;
+struct SignalBlocker {
+    SignalBlocker() {
+        sigprocmask(SIG_BLOCK, &signal_set, NULL); // חוסם מיד כשנוצר
+    }
+    ~SignalBlocker() {
+        sigprocmask(SIG_UNBLOCK, &signal_set, NULL); // משחרר אוטומטית כשהפונקציה נגמרת
+    }
+};
+
+
 // משתנים גלובליים לניהול המצב (או מחלקה שתכיל אותם)
 std::deque<int> ready_queue; // תור לניהול READY [cite: 71, 191]
 int total_quantums_counter = 0; // מונה קוונטומים כללי [cite: 175]
 Thread* running_thread = nullptr;
 std::map<int, Thread*> all_threads;
 std::queue<Thread*> zombie_queue;
+
+
+void cleanup_zombie(Thread* t) {
+    if (t) {
+        if (t->stack) {
+            delete[] t->stack;
+        }
+        delete t;
+    }
+}
+
+//context switch
+void scheduler(int sig){
+    if (sig==SIGVTALRM){
+        for (auto const& [tid, thread] : all_threads) {
+            if (thread->sleep_remaining > 0){
+                thread->sleep_remaining--;
+            }
+            if (thread->sleep_remaining == 0 && !thread->forreal && thread->state == BLOCKED) {
+                    thread->state = READY;
+                    ready_queue.push_back(tid);
+            }
+        }
+    }
+    
+   
+    if (running_thread != nullptr) {
+        if (sigsetjmp(running_thread->env, 1) != 0) {
+            while (!zombie_queue.empty()) {
+                Thread* zombie = zombie_queue.front();
+                zombie_queue.pop();
+                cleanup_zombie(zombie);
+            }
+            return; // ממשיכים בחיים של החוט שהתעורר
+        
+        }
+        if (sig == SIGVTALRM) {
+            running_thread->state = READY;
+            ready_queue.push_back(running_thread->tid);
+        }
+        
+    }
+
+    if (ready_queue.empty()) {
+        return; 
+    }
+
+    int next_tid = ready_queue.front();
+    ready_queue.pop_front();
+    running_thread = all_threads[next_tid];
+
+    running_thread->state = RUNNING;
+    running_thread -> quantums_count++;
+    total_quantums_counter++;
+
+    siglongjmp(running_thread->env, 1);
+}
 
 /**
  * @brief initializes the thread library.
@@ -63,8 +133,33 @@ int uthread_init(int quantum_usecs) {
         std::cerr << "thread library error: " << "did not implement" << std::endl;
         return -1;
     }
+    struct sigaction sa = {0};
+    sa.sa_handler = &scheduler;
+    sigfillset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGVTALRM, &sa, NULL);
+
+    struct itimerval timer;
+
+    long sec = quantum_usecs / 1000000;
+    long usec = quantum_usecs % 1000000;
+
+    // הגדרת הפעם הראשונה שהטיימר יפעל
+    timer.it_value.tv_sec = sec;
+    timer.it_value.tv_usec = usec;
+
+    // הגדרת המרווח הקבוע (Interval) לכל קוונטום הבא
+    timer.it_interval.tv_sec = sec;
+    timer.it_interval.tv_usec = usec;
+
+    // עכשיו באמת מפעילים את הטיימר עם הערכים שהגדרנו
+    if (setitimer(ITIMER_VIRTUAL, &timer, NULL)) {
+        std::cerr << "system error: setitimer failed" << std::endl;
+        return -1;
+    }
+
     total_quantums_counter = 1;
-    running_thread = new Thread(0, RUNNING); // הכל הוגדר בשורה אחת!
+    running_thread = new Thread(0, RUNNING); 
     (*running_thread).quantums_count = 1;
     all_threads[0]= running_thread;
     return 0;
@@ -83,7 +178,7 @@ int uthread_init(int quantum_usecs) {
  * @return On success, return the ID of the created thread. On failure, return -1.
 */
 int uthread_spawn(thread_entry_point entry_point) {
-    
+    SignalBlocker blocker;
     if (entry_point==nullptr){
         std::cerr << "thread library error: " << "entry_point is null" << std::endl;
         return -1;
@@ -126,52 +221,8 @@ int uthread_spawn(thread_entry_point entry_point) {
     return new_id;
 }
 
-void cleanup_zombie(Thread* t) {
-    if (t) {
-        if (t->stack) {
-            delete[] t->stack;
-        }
-        delete t;
-    }
-}
 
-//context switch
-void scheduler(){
-    for (auto const& [tid, thread] : all_threads) {
-        if (thread->sleep_remaining > 0){
-            thread->sleep_remaining--;
-        }
-        if (thread->sleep_remaining == 0 && !thread->forreal) {
-                thread->state = READY;
-                ready_queue.push_back(tid);
-        }
-    }
-    if (running_thread != nullptr) {
-        if (sigsetjmp(running_thread->env, 1) != 0) {
-            while (!zombie_queue.empty()) {
-                Thread* zombie = zombie_queue.front();
-                zombie_queue.pop();
-                cleanup_zombie(zombie);
-            }
-            return; // ממשיכים בחיים של החוט שהתעורר
-        }
-        
-    }
 
-    if (ready_queue.empty()) {
-        return; 
-    }
-
-    int next_tid = ready_queue.front();
-    ready_queue.pop_front();
-    running_thread = all_threads[next_tid];
-
-    running_thread->state = RUNNING;
-    running_thread -> quantums_count++;
-    total_quantums_counter++;
-
-    siglongjmp(running_thread->env, 1);
-}
 
 /**
  * @brief Terminates the thread with ID tid and deletes it from all relevant control structures.
@@ -184,6 +235,7 @@ void scheduler(){
  * itself or the main thread is terminated, the function does not return.
 */
 int uthread_terminate(int tid) {
+    SignalBlocker blocker;
     if (all_threads.find(tid) == all_threads.end()) {
         std::cerr << "thread library error: thread " << tid << " does not exist\n";
         return -1;
@@ -214,7 +266,7 @@ int uthread_terminate(int tid) {
     if (uthread_get_tid() == tid) {
         zombie_queue.push(t); // נשלח לניקוי ע"י החוט הבא
         running_thread = nullptr; // מסמנים ל-scheduler לא לשמור context
-        scheduler();
+        scheduler(0);
         // לא נגיע לכאן לעולם
     } else {
         // מחיקת חוט אחר - בטוח לנקות עכשיו
@@ -235,6 +287,7 @@ int uthread_terminate(int tid) {
  * @return On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid) {
+    SignalBlocker blocker;
     if (all_threads.find(tid) == all_threads.end()) {
         std::cerr << "thread library error: thread " << tid << " not found" << std::endl;
         return -1;
@@ -249,7 +302,7 @@ int uthread_block(int tid) {
     all_threads[tid]->forreal = true;
 
     if (running_thread->tid == tid) {
-        scheduler();
+        scheduler(0);
         return 0;
     }
     auto it = std::find(ready_queue.begin(), ready_queue.end(), tid);
@@ -270,6 +323,7 @@ int uthread_block(int tid) {
  * @return On success, return 0. On failure, return -1.
 */
 int uthread_resume(int tid) {
+    SignalBlocker blocker;
     if (all_threads.find(tid) == all_threads.end()) {
         std::cerr << "thread library error: thread " << tid << " not found" << std::endl;
         return -1;
@@ -300,6 +354,7 @@ int uthread_resume(int tid) {
  * @return On success, return 0. On failure, return -1.
 */
 int uthread_sleep(int num_quantums) {
+    SignalBlocker blocker;
     if(running_thread->tid == 0 && num_quantums != 0){
         std::cerr << "thread library error: main thread cannot sleep\n";
         return -1;
@@ -307,13 +362,13 @@ int uthread_sleep(int num_quantums) {
     if (num_quantums == 0){
         running_thread->state = READY;
         ready_queue.push_back(uthread_get_tid());//we moved current running thread ti the end of the queue of all the ready threads
-        scheduler();
+        scheduler(0);
         return 0;
     }
     //num_quantums>0
     running_thread->sleep_remaining = num_quantums;
     running_thread->state = BLOCKED;
-    scheduler();
+    scheduler(0);
     return 0;
 }
 
@@ -358,5 +413,6 @@ int uthread_get_quantums(int tid) {
     }
     return all_threads[tid]->quantums_count;
 }
+
 
 
