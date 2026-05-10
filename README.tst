@@ -9,27 +9,44 @@ uthreads.cpp    - The main implementation of the user-level threads library.
 
 REMARKS:
 * Design Choices and Data Structures:
-To manage the threads efficiently, we used several standard C++ containers:
-- std::map<int, Thread*>: We used a map to keep track of all active threads by their IDs.
- This allows us to easily find, access, and verify the existence of any thread.
+To manage the threads efficiently and meet the requirement of finding the smallest 
+available ID, we used the following standard C++ containers:
 
-- std::deque<int>: We used a deque for the READY queue.
- It makes it very easy and efficient to pop the next thread from the front and push preempted or
- resumed threads to the back.
+- std::map<int, Thread*>: 
+Used to keep track of all active threads by their IDs. This allows for O(log n) 
+access, insertion, and deletion, ensuring we can easily verify if a thread 
+exists and access its context.
 
-- std::queue<Thread*>: We used a queue for "zombie" threads. 
- When a thread terminates itself, it cannot delete its own stack while running.
- Instead, it pushes itself to the zombie queue, and the next thread that runs cleans it 
- up during the context switch.
+- std::deque<int>: 
+Used for the READY queue[cite: 71]. A deque was chosen because it provides 
+efficient O(1) operations for popping from the front (scheduling) and 
+pushing to the back (preemption/resuming).
+
+- std::queue<Thread*>: 
+Used as a "zombie" queue for threads that have terminated themselves[cite: 59, 60]. 
+Since a running thread cannot safely delete its own stack while it is still 
+in use, it is marked for deletion and added to this queue. The next thread 
+selected by the scheduler handles the actual memory deallocation of the 
+zombie thread's resources.
 
 * Memory Management:
-To ensure no memory leaks occur, we implemented a global `GarbageCollector` struct. In scenarios where a test program ends simply by returning from `main` (meaning `uthread_terminate(0)` is never explicitly called), our garbage collector's destructor automatically runs at the end of the program. It iterates over the map and the zombie queue to free any remaining allocated stacks and Thread objects safely.
+To prevent memory leaks and ensure robust cleanup[cite: 80], we implemented a 
+global `GarbageCollector` struct. This acts as an RAII-based manager that 
+is particularly useful if the program ends without an explicit call to 
+terminate the main thread. Its destructor iterates through all remaining 
+threads in the map and the zombie queue to free allocated stacks and 
+Thread objects.
 
 * Context Switching and Scheduling:
-We implemented the Round-Robin scheduler using `setitimer` to trigger `SIGVTALRM` signals.
-To avoid race conditions, we block signals using a custom RAII `SignalBlocker` struct 
-whenever entering a critical library function, ensuring that the scheduler
-doesn't interrupt a sensitive state change. Context saving and loading are done using `sigsetjmp` and `siglongjmp`.
+We implemented the Round-Robin (RR) scheduling algorithm  using the 
+Virtual Timer (`ITIMER_VIRTUAL`) to trigger `SIGVTALRM` signals. 
+- Signal Safety: To prevent race conditions during critical sections (like 
+  modifying the READY queue), we implemented a `SignalBlocker` RAII struct 
+  that uses `sigprocmask` to block/unblock signals automatically.
+- Context Management: `sigsetjmp` and `siglongjmp` are used to save and 
+  restore thread states. As required, we utilized the 
+  `translate_address` function to correctly set the stack and instruction 
+  pointers for new threads.
 
 ANSWERS:
 None.
