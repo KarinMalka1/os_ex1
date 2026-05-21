@@ -7,7 +7,7 @@
 #include <map>
 #include <algorithm>
 #include <sys/time.h>
-
+#include <vector>
 /* code for 64 bit Intel arch */
 typedef unsigned long address_t;
 #define JB_SP 6
@@ -79,8 +79,9 @@ void cleanup_zombie(Thread* t) {
  * @brief The Scheduler function - handles context switching.
  */
 void scheduler(int sig) {
+    std::vector<int> threads_to_wake;
     // Handle sleeping threads decrement
-    if (sig == SIGVTALRM) {
+    // if (sig == SIGVTALRM) {
         for (auto const& pair : all_threads) {
             int tid = pair.first;
             Thread* thread = pair.second;
@@ -89,11 +90,11 @@ void scheduler(int sig) {
                 thread->sleep_remaining--;
             }
             if (thread->sleep_remaining == 0 && !thread->forreal && thread->state == BLOCKED) {
-                thread->state = READY;
-                ready_queue.push_back(tid);
+                // thread->state = READY;
+                threads_to_wake.push_back(tid);
             }
         }
-    }
+    // }
 
     // Save current context
     if (running_thread != nullptr) {
@@ -112,7 +113,10 @@ void scheduler(int sig) {
             ready_queue.push_back(running_thread->tid);
         }
     }
-
+    for (int tid : threads_to_wake) {
+        all_threads[tid]->state = READY;
+        ready_queue.push_back(tid);
+    }
     if (ready_queue.empty()) {
         std::cerr << "system error: ready queue is empty (deadlock)\n";
         exit(1);
@@ -348,7 +352,7 @@ int uthread_sleep(int num_quantums) {
         return 0;
     }
 
-    running_thread->sleep_remaining = num_quantums;
+    running_thread->sleep_remaining = num_quantums+1;
     running_thread->state = BLOCKED;
     scheduler(0);
     return 0;
