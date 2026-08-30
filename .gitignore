@@ -2,4 +2,4 @@
 /games
 /program
 /test35
-/tests
+tests/*.out

@@ -1,0 +1,4 @@
+Creating 100 threads
+Trying to create one more thread
+Deleting threads 10 and 20, then creating a new one
+Success
