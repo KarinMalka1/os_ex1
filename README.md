@@ -1,10 +1,10 @@
-# uthreads - OS Exercise 1
+# uthreads
 
-This is our implementation of a user-level threads library for the OS course exercise 1.
-Basically we're building our own mini thread scheduler from scratch, without using real
-kernel threads - just `sigsetjmp`/`siglongjmp` to jump between "threads" and a timer
-signal (`setitimer`) that fires every quantum to force a switch. It's a bit mind-bending
-at first but it clicks once you see it running.
+Our implementation of a user-level threads library in C++. Basically we're building our
+own mini thread scheduler from scratch, without using real kernel threads - just
+`sigsetjmp`/`siglongjmp` to jump between "threads" and a timer signal (`setitimer`) that
+fires every quantum to force a switch. It's a bit mind-bending at first but it clicks
+once you see it running.
 
 ## What it does
 
