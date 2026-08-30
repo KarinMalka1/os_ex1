@@ -1,33 +1,31 @@
-# User-Level Threads Library (uthreads)
+# uthreads - OS Exercise 1
 
-A C++ implementation of a user-level (green) threads library, built as part of the
-Hebrew University Operating Systems course (Exercise 1).
+This is our implementation of a user-level threads library for the OS course exercise 1.
+Basically we're building our own mini thread scheduler from scratch, without using real
+kernel threads - just `sigsetjmp`/`siglongjmp` to jump between "threads" and a timer
+signal (`setitimer`) that fires every quantum to force a switch. It's a bit mind-bending
+at first but it clicks once you see it running.
 
-The library implements cooperative and preemptive multithreading entirely in user
-space, using `sigsetjmp`/`siglongjmp` for context switching and `setitimer` with
-signal handling to drive quantum-based preemption — no kernel threads involved.
+## What it does
 
-## Features
+- create / terminate / block / resume threads
+- round robin scheduling, each thread gets a quantum before it's preempted
+- threads can sleep for N quantums and get woken back up automatically
+- keeps track of how many quantums each thread ran for + total quantums overall
 
-- Thread creation, termination, blocking, and resuming
-- Round-robin preemptive scheduling based on a configurable quantum length
-- Thread sleeping (`uthread_sleep`) with automatic wake-up and re-queueing
-- Per-thread and total quantum accounting
+## Files
 
-## Project layout
+- `uthreads.h` / `uthreads.cpp` - the actual library, this is the part we wrote
+- `tests/` - our test cases + a python script that compiles and runs them all and diffs
+  the output against what's expected
+- `demos/` - some small demo programs (not ours, given in the course) showing the raw
+  building blocks: timers, sigsetjmp, signal handlers
+- `games/` - a couple of little games we made just for fun to stress test the library
+  (ants, thread_tron)
 
-```
-uthreads.h        Public API for the library
-uthreads.cpp       Library implementation
-tests/             Unit tests (.cpp) with expected output (.txt) and a Python test runner
-demos/             Small standalone demos of the underlying OS primitives (itimer, sigsetjmp, signal handlers)
-games/             Example programs (ants, thread_tron) built on top of the library
-```
+## How to compile
 
-## Building
-
-The library has no build system of its own — it's compiled together with whatever
-program includes `uthreads.h`. For example:
+There's no makefile, just compile it together with whatever main file you're using:
 
 ```bash
 g++ -Wall --std=c++17 -o my_program uthreads.cpp my_program.cpp
@@ -35,26 +33,16 @@ g++ -Wall --std=c++17 -o my_program uthreads.cpp my_program.cpp
 
 ## Running the tests
 
-Tests live in [tests/](tests/) as matched `.cpp`/`.txt` pairs and are compiled and run
-via the included Python test runner:
-
 ```bash
 python3 tests/run_tests.py
 ```
 
-The runner compiles each test against `uthreads.cpp`, executes it, and compares its
-output to the corresponding expected `.txt` file.
+It compiles every test in `tests/` against our `uthreads.cpp` and checks the output
+matches the `.txt` file next to it. Should all pass green if nothing's broken.
 
-## Demos
+## Notes
 
-[demos/](demos/) contains small, self-contained C programs illustrating the low-level
-mechanisms the library relies on:
-
-- `demo_itimer.c` — interval timers (`setitimer`) and signal-based timeouts
-- `demo_jmp.c` — non-local jumps with `sigsetjmp`/`siglongjmp`
-- `demo_singInt_handler.c` — installing a signal handler
-
-## Games
-
-[games/](games/) contains example programs built on top of the thread library to
-exercise it in a more interactive way (`ants.cpp`, `thread_tron.cpp`).
+Wrote and tested this on Linux (WSL), didn't check it on anything else. If something
+looks weird with the stack address translation in `translate_address`, that's the
+64-bit magic number trick from the course - don't touch it unless you know what you're
+doing lol.
